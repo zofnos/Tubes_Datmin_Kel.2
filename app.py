@@ -10,32 +10,116 @@ from sklearn.decomposition import PCA
 import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
+import io
 
 # Konfigurasi halaman
 st.set_page_config(page_title="Dashboard Analisis Universitas", layout="wide")
 st.title("🎓 Dashboard Analisis Status Universitas")
 st.markdown("##### *Naive Bayes & K-Means Clustering untuk Evaluasi Kinerja Kelembagaan*")
 
-# Menu Navigasi
-st.sidebar.title("📂 Navigasi")
-menu = st.sidebar.selectbox("Pilih Halaman", ["📊 Eksplorasi Data", "🤖 Klasifikasi Naive Bayes", "🔍 Clustering K-Means", "📌 Kesimpulan", "🧮 Prediksi Status Universitas"])
-
 # Data Loading Function
 @st.cache_data
-def load_data():
+def load_data_from_file(file_path=None, uploaded_file=None):
+    """Load data from either file path or uploaded file"""
     try:
-        # Try to load the CSV file
-        df = pd.read_csv("QS World University Rankings 2025 (Top global universities).csv", encoding='ISO-8859-1')
-        return df
+        if uploaded_file is not None:
+            # Handle uploaded file
+            if uploaded_file.name.endswith('.csv'):
+                # Try different encodings
+                try:
+                    df = pd.read_csv(uploaded_file, encoding='utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        uploaded_file.seek(0)  # Reset file pointer
+                        df = pd.read_csv(uploaded_file, encoding='ISO-8859-1')
+                    except UnicodeDecodeError:
+                        uploaded_file.seek(0)  # Reset file pointer
+                        df = pd.read_csv(uploaded_file, encoding='latin-1')
+                
+                st.success(f"✅ File berhasil dimuat: {uploaded_file.name}")
+                return df
+            else:
+                st.error("❌ Format file tidak didukung. Silakan upload file CSV.")
+                return None
+        
+        elif file_path:
+            # Try to load from file path
+            df = pd.read_csv(file_path, encoding='ISO-8859-1')
+            st.success(f"✅ File berhasil dimuat dari: {file_path}")
+            return df
+            
     except FileNotFoundError:
-        st.error("File CSV tidak ditemukan. Silakan upload file 'QS World University Rankings 2025 (Top global universities).csv'")
+        st.warning(f"⚠️ File tidak ditemukan: {file_path}")
         return None
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}")
+        st.error(f"❌ Error loading data: {str(e)}")
         return None
+    
+    return None
 
-# Load and preprocess data
-df = load_data()
+# File Upload Section
+st.sidebar.title("📂 Data Input")
+st.sidebar.markdown("### 📤 Upload Data")
+
+# File uploader
+uploaded_file = st.sidebar.file_uploader(
+    "Upload file CSV data universitas",
+    type=['csv'],
+    help="Upload file CSV yang berisi data ranking universitas"
+)
+
+# Option to use default file if no upload
+use_default = st.sidebar.checkbox(
+    "Gunakan file default (QS World University Rankings 2025)",
+    value=True if uploaded_file is None else False,
+    help="Centang jika ingin menggunakan file default di direktori aplikasi"
+)
+
+# Load data based on user choice
+df = None
+if uploaded_file is not None:
+    df = load_data_from_file(uploaded_file=uploaded_file)
+elif use_default:
+    df = load_data_from_file(file_path="QS World University Rankings 2025 (Top global universities).csv")
+
+# Show data info after loading
+if uploaded_file is not None or use_default:
+    if df is None:
+        st.sidebar.error("❌ Gagal memuat data")
+        if uploaded_file is None and use_default:
+            st.sidebar.info("💡 Coba upload file CSV secara manual")
+    else:
+        st.sidebar.success("✅ Data berhasil dimuat")
+        st.sidebar.info(f"📊 Total data: {len(df)} baris, {len(df.columns)} kolom")
+
+# Data requirements info
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📋 Format Data yang Diperlukan")
+st.sidebar.markdown("""
+**Kolom yang harus ada:**
+- `Institution_Name`: Nama universitas
+- `Location`: Lokasi universitas  
+- `Region`: Wilayah/region
+- `STATUS`: Status universitas (A/B/C)
+- Score columns ending with `_Score`
+
+**Format STATUS:**
+- A = Negeri
+- B/C = Swasta
+""")
+
+# Show sample data format
+with st.sidebar.expander("📝 Contoh Format Data"):
+    sample_data = pd.DataFrame({
+        'Institution_Name': ['MIT', 'Stanford', 'Harvard'],
+        'Location': ['US', 'US', 'US'],
+        'STATUS': ['A', 'B', 'A'],
+        'Overall_Score': [100.0, 98.5, 97.8],
+        'Academic_Reputation_Score': [100.0, 99.0, 98.0]
+    })
+    st.dataframe(sample_data, use_container_width=True)
+
+# Continue only if data is loaded
 
 if df is not None:
     df_clean = df.copy()
