@@ -303,7 +303,6 @@ if df is not None:
                 fig_region = px.bar(region_count, x=location_col, y='Jumlah',
                                    color='Jumlah', color_continuous_scale='viridis',
                                    title=f"Top 10 {location_col}")
-                fig_region.update_xaxis(tickangle=45)
                 st.plotly_chart(fig_region, use_container_width=True)
             else:
                 st.info("Kolom Region/Location tidak tersedia")
@@ -320,7 +319,6 @@ if df is not None:
                                          title=f"Distribusi Status per {location_col}",
                                          barmode='stack',
                                          color_discrete_map={'Negeri': '#1f77b4', 'Swasta': '#ff7f0e'})
-                fig_region_status.update_xaxis(tickangle=45)
                 st.plotly_chart(fig_region_status, use_container_width=True)
             else:
                 st.info("Kolom Region/Location tidak tersedia")
