@@ -120,29 +120,33 @@ with st.sidebar.expander("📝 Contoh Format Data"):
     st.dataframe(sample_data, use_container_width=True)
 
 # Continue only if data is loaded
-
 if df is not None:
+    # Data preprocessing
     df_clean = df.copy()
     
-    # Define the score columns for features (excluding rank columns)
-    score_columns = [
-        'Academic_Reputation_Score',
-        'Employer_Reputation_Score', 
-        'Faculty_Student_Score',
-        'Citations_per_Faculty_Score',
-        'International_Faculty_Score',
-        'International_Students_Score',
-        'International_Research_Network_Score',
-        'Employment_Outcomes_Score',
-        'Sustainability_Score',
-        'Overall_Score'
-    ]
+    # Auto-detect score columns
+    score_columns = [col for col in df_clean.columns if col.endswith('_Score')]
     
-    # Check if required columns exist
-    missing_cols = [col for col in score_columns + ['STATUS'] if col not in df_clean.columns]
+    # If no score columns found, try common patterns
+    if not score_columns:
+        potential_score_cols = [
+            'Academic_Reputation_Score', 'Employer_Reputation_Score', 
+            'Faculty_Student_Score', 'Citations_per_Faculty_Score',
+            'International_Faculty_Score', 'International_Students_Score',
+            'International_Research_Network_Score', 'Employment_Outcomes_Score',
+            'Sustainability_Score', 'Overall_Score'
+        ]
+        score_columns = [col for col in potential_score_cols if col in df_clean.columns]
     
-    if missing_cols:
-        st.error(f"Missing required columns: {missing_cols}")
+    if not score_columns:
+        st.error("❌ Tidak ditemukan kolom skor yang valid. Pastikan ada kolom yang berakhiran '_Score'")
+        st.info("💡 Kolom skor yang diharapkan: Academic_Reputation_Score, Overall_Score, dll.")
+        st.stop()
+    
+    # Check for STATUS column
+    if 'STATUS' not in df_clean.columns:
+        st.error("❌ Kolom 'STATUS' tidak ditemukan dalam data")
+        st.info("💡 Tambahkan kolom STATUS dengan nilai A (Negeri) atau B/C (Swasta)")
         st.stop()
     
     # Handle missing values in score columns
@@ -150,13 +154,19 @@ if df is not None:
         df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
         df_clean[col] = df_clean[col].fillna(df_clean[col].median())
     
-    # Handle missing values in STATUS column - fill with mode
-    status_mode = df_clean['STATUS'].mode()[0] if not df_clean['STATUS'].mode().empty else 'B'
-    df_clean['STATUS'] = df_clean['STATUS'].fillna(status_mode)
+    # Handle missing values in STATUS column
+    if df_clean['STATUS'].isnull().any():
+        status_mode = df_clean['STATUS'].mode()[0] if not df_clean['STATUS'].mode().empty else 'B'
+        df_clean['STATUS'] = df_clean['STATUS'].fillna(status_mode)
     
     # Remap STATUS column
     status_mapping = {'A': 'Negeri', 'B': 'Swasta', 'C': 'Swasta'}
     df_clean['STATUS'] = df_clean['STATUS'].map(status_mapping)
+    
+    # Handle unmapped values (if any)
+    if df_clean['STATUS'].isnull().any():
+        st.warning("⚠️ Beberapa nilai STATUS tidak dikenali. Akan diisi dengan 'Swasta'")
+        df_clean['STATUS'] = df_clean['STATUS'].fillna('Swasta')
     
     # Preprocessing for classification
     label_encoder = LabelEncoder()
@@ -165,6 +175,25 @@ if df is not None:
     # Features and target
     X = df_clean[score_columns]
     y = df_clean['STATUS_ENC']
+
+    # Show data summary
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📈 Ringkasan Data")
+    st.sidebar.metric("Total Universitas", len(df_clean))
+    st.sidebar.metric("Jumlah Fitur Skor", len(score_columns))
+    st.sidebar.metric("Universitas Negeri", len(df_clean[df_clean['STATUS'] == 'Negeri']))
+    st.sidebar.metric("Universitas Swasta", len(df_clean[df_clean['STATUS'] == 'Swasta']))
+
+    # Menu Navigasi
+    st.sidebar.markdown("---")
+    st.sidebar.title("🧭 Navigasi")
+    menu = st.sidebar.selectbox("Pilih Halaman", [
+        "📊 Eksplorasi Data", 
+        "🤖 Klasifikasi Naive Bayes", 
+        "🔍 Clustering K-Means", 
+        "📌 Kesimpulan", 
+        "🧮 Prediksi Status Universitas"
+    ])
 
     # =================== EKSPLORASI DATA ====================
     if menu == "📊 Eksplorasi Data":
@@ -179,13 +208,40 @@ if df is not None:
         with col3:
             st.metric("Kategori Status", len(df_clean['STATUS'].unique()))
         with col4:
-            st.metric("Negara/Region", len(df_clean['Region'].unique()) if 'Region' in df_clean.columns else 0)
+            region_count = len(df_clean['Region'].unique()) if 'Region' in df_clean.columns else len(df_clean['Location'].unique()) if 'Location' in df_clean.columns else 0
+            st.metric("Negara/Region", region_count)
+        
+        # Show available columns info
+        st.markdown("#### 📋 Informasi Dataset")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Kolom yang tersedia:**")
+            st.write(f"• Total kolom: {len(df_clean.columns)}")
+            st.write(f"• Kolom skor: {len(score_columns)}")
+            basic_cols = ['Institution_Name', 'Location', 'Region', 'STATUS']
+            available_basic = [col for col in basic_cols if col in df_clean.columns]
+            st.write(f"• Kolom informasi: {len(available_basic)}")
+        
+        with col2:
+            st.markdown("**Kolom skor yang terdeteksi:**")
+            for col in score_columns[:5]:  # Show first 5
+                st.write(f"• {col.replace('_', ' ')}")
+            if len(score_columns) > 5:
+                st.write(f"• ... dan {len(score_columns) - 5} kolom lainnya")
         
         # Show sample data
         st.markdown("#### 📋 Sample Data")
-        display_cols = ['Institution_Name', 'Location', 'Region', 'STATUS', 'Overall_Score'] + score_columns[:3]
-        available_cols = [col for col in display_cols if col in df_clean.columns]
-        st.dataframe(df_clean[available_cols].head(10), use_container_width=True)
+        display_cols = []
+        # Add basic columns if available
+        for col in ['Institution_Name', 'Location', 'Region', 'STATUS']:
+            if col in df_clean.columns:
+                display_cols.append(col)
+        
+        # Add some score columns
+        display_cols.extend(score_columns[:3])
+        
+        st.dataframe(df_clean[display_cols].head(10), use_container_width=True)
         
         st.markdown("---")
 
@@ -205,9 +261,11 @@ if df is not None:
 
         with col2:
             st.markdown("#### 📊 Perbandingan Overall Score")
-            fig_box = px.box(df_clean, x='STATUS', y='Overall_Score', 
+            # Use Overall_Score if available, otherwise use first score column
+            score_col = 'Overall_Score' if 'Overall_Score' in score_columns else score_columns[0]
+            fig_box = px.box(df_clean, x='STATUS', y=score_col, 
                            color='STATUS',
-                           title="Distribusi Overall Score berdasarkan Status",
+                           title=f"Distribusi {score_col.replace('_', ' ')} berdasarkan Status",
                            color_discrete_map={'Negeri': '#1f77b4', 'Swasta': '#ff7f0e'})
             st.plotly_chart(fig_box, use_container_width=True)
 
@@ -233,42 +291,54 @@ if df is not None:
         comparison_df = pd.DataFrame(comparison_data)
         st.dataframe(comparison_df, use_container_width=True)
 
-        # Regional distribution
+        # Regional/Location distribution
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("#### 🌍 Distribusi Regional")
-            if 'Region' in df_clean.columns:
-                region_count = df_clean['Region'].value_counts().head(10).reset_index()
-                region_count.columns = ['Region', 'Jumlah']
-                fig_region = px.bar(region_count, x='Region', y='Jumlah',
+            location_col = 'Region' if 'Region' in df_clean.columns else 'Location' if 'Location' in df_clean.columns else None
+            
+            if location_col:
+                region_count = df_clean[location_col].value_counts().head(10).reset_index()
+                region_count.columns = [location_col, 'Jumlah']
+                fig_region = px.bar(region_count, x=location_col, y='Jumlah',
                                    color='Jumlah', color_continuous_scale='viridis',
-                                   title="Top 10 Regions")
+                                   title=f"Top 10 {location_col}")
+                fig_region.update_xaxis(tickangle=45)
                 st.plotly_chart(fig_region, use_container_width=True)
+            else:
+                st.info("Kolom Region/Location tidak tersedia")
 
         with col2:
             st.markdown("#### 🏛️ Status per Region")
-            if 'Region' in df_clean.columns:
-                region_status = pd.crosstab(df_clean['Region'], df_clean['STATUS'])
-                top_regions = df_clean['Region'].value_counts().head(8).index
+            if location_col:
+                region_status = pd.crosstab(df_clean[location_col], df_clean['STATUS'])
+                top_regions = df_clean[location_col].value_counts().head(8).index
                 region_status_filtered = region_status.loc[top_regions]
                 
                 fig_region_status = px.bar(region_status_filtered.reset_index(), 
-                                         x='Region', y=['Negeri', 'Swasta'],
-                                         title="Distribusi Status per Region",
+                                         x=location_col, y=['Negeri', 'Swasta'],
+                                         title=f"Distribusi Status per {location_col}",
                                          barmode='stack',
                                          color_discrete_map={'Negeri': '#1f77b4', 'Swasta': '#ff7f0e'})
+                fig_region_status.update_xaxis(tickangle=45)
                 st.plotly_chart(fig_region_status, use_container_width=True)
+            else:
+                st.info("Kolom Region/Location tidak tersedia")
 
         # Top performing universities by status
         st.markdown("#### 🏆 Top 10 Universitas per Status")
+        
+        score_col = 'Overall_Score' if 'Overall_Score' in score_columns else score_columns[0]
+        display_cols = ['Institution_Name'] if 'Institution_Name' in df_clean.columns else [df_clean.columns[0]]
+        if 'Location' in df_clean.columns:
+            display_cols.append('Location')
+        display_cols.append(score_col)
         
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("**Top 10 Universitas Negeri:**")
             if 'Negeri' in df_clean['STATUS'].values:
-                top_negeri = df_clean[df_clean['STATUS'] == 'Negeri'].nlargest(10, 'Overall_Score')[
-                    ['Institution_Name', 'Location', 'Overall_Score']
-                ]
+                top_negeri = df_clean[df_clean['STATUS'] == 'Negeri'].nlargest(10, score_col)[display_cols]
                 st.dataframe(top_negeri.reset_index(drop=True), use_container_width=True)
             else:
                 st.info("Tidak ada data universitas negeri")
@@ -276,9 +346,7 @@ if df is not None:
         with col2:
             st.markdown("**Top 10 Universitas Swasta:**")
             if 'Swasta' in df_clean['STATUS'].values:
-                top_swasta = df_clean[df_clean['STATUS'] == 'Swasta'].nlargest(10, 'Overall_Score')[
-                    ['Institution_Name', 'Location', 'Overall_Score']
-                ]
+                top_swasta = df_clean[df_clean['STATUS'] == 'Swasta'].nlargest(10, score_col)[display_cols]
                 st.dataframe(top_swasta.reset_index(drop=True), use_container_width=True)
             else:
                 st.info("Tidak ada data universitas swasta")
@@ -327,19 +395,19 @@ if df is not None:
         plt.tight_layout()
         st.pyplot(fig_corr)
 
-        # Top universities by overall score
-        st.markdown("#### 🏆 Top 15 Universitas Berdasarkan Overall Score")
-        top_unis = df_clean.nlargest(15, 'Overall_Score')[['Institution_Name', 'Location', 'STATUS', 'Overall_Score']]
+        # Top universities by score
+        st.markdown(f"#### 🏆 Top 15 Universitas Berdasarkan {score_col.replace('_', ' ')}")
+        top_unis = df_clean.nlargest(15, score_col)[display_cols + ['STATUS']]
         
         # Color code by status
         fig_top = px.bar(top_unis.reset_index(drop=True), 
-                        x='Overall_Score', 
-                        y='Institution_Name',
+                        x=score_col, 
+                        y=display_cols[0],
                         color='STATUS',
                         orientation='h',
-                        title="Top 15 Universitas (Negeri vs Swasta)",
+                        title=f"Top 15 Universitas (Negeri vs Swasta)",
                         color_discrete_map={'Negeri': '#1f77b4', 'Swasta': '#ff7f0e'},
-                        hover_data=['Location'])
+                        hover_data=display_cols[1:] if len(display_cols) > 1 else None)
         fig_top.update_layout(yaxis={'categoryorder':'total ascending'})
         st.plotly_chart(fig_top, use_container_width=True)
 
